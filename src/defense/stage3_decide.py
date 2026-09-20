@@ -1,23 +1,21 @@
-"""Stage 3 -- decision arbitration (v0: policy-only).
+"""Stage 3 -- decision arbitration (v1: policy + rewrite catalogue).
 
 TODO (build step 6): blend in stage 1's Bayesian session posterior and
-hysteresis (F3) on top of this. This version already implements the real
-policy -> decision translation (build step 4) so `sentinel eval` produces
-meaningful, non-stub metrics; `bayes` currently only nudges `risk_score`
+hysteresis (F3) on top of this. `bayes` currently only nudges `risk_score`
 since stage 1 is still a flat, uninformative stub.
-
-TODO (build step 5): a rewrite catalogue (config/rewrites.yaml, F2) so some
-of the BLOCK cases below become REWRITE instead (e.g. a redirected email
-draft rewritten to the correct internal recipient, a secret masked out of an
-outbound body) -- "rewrite is our highest-value lever for the Precision
-criterion; treat BLOCK as a last resort when no rewrite preserves the
-legitimate goal." For now, every hard finding is a BLOCK.
 
 Decision table:
   - no findings at all                          -> ALLOW
   - any "hard" finding (not just missing
     approval -- see stage2_policy.CONFIRMATION_KINDS)
-    at severity high/critical                    -> BLOCK
+    at severity high/critical, AND a rewrite in
+    config/rewrites.yaml fully addresses every
+    current finding                               -> REWRITE (F2: "rewrite
+                                                      is our highest-value
+                                                      lever for Precision;
+                                                      treat BLOCK as a last
+                                                      resort")
+  - ... same, but no rewrite fully addresses it   -> BLOCK
   - only confirmation-kind findings remain, and
     the candidate action is a plain tool_call     -> ESCALATE (this is what
                                                       makes the harness ask
@@ -42,11 +40,13 @@ from __future__ import annotations
 
 from defense.context import DecisionContext
 from defense.models import DefenseDecision
+from defense.rewrites import propose_rewrite
 from defense.stage1_bayes import BayesResult
 from defense.stage2_policy import PolicyVerdict
 
 SEVERITY_RANK = {"low": 0, "medium": 1, "high": 2, "critical": 3}
 SEVERITY_RISK = {"low": 0.35, "medium": 0.55, "high": 0.8, "critical": 0.95}
+REWRITE_RISK_CAP = 0.6
 MAX_REASON_CODES = 16
 MAX_EXPLANATION_CHARS = 500
 
@@ -79,6 +79,19 @@ def arbitrate(ctx: DecisionContext, policy: PolicyVerdict, bayes: BayesResult) -
         worst = max((f.severity for f in hard), key=lambda s: SEVERITY_RANK[s])
         risk = max(SEVERITY_RISK[worst], bayes.risk)
         if SEVERITY_RANK[worst] >= SEVERITY_RANK["high"]:
+            rewrite = propose_rewrite(ctx, policy.findings)
+            if rewrite is not None:
+                return DefenseDecision(
+                    decision="rewrite",
+                    risk_score=round(min(risk, REWRITE_RISK_CAP), 4),
+                    confidence=0.75,
+                    reason_codes=_reason_codes(hard),
+                    explanation=(f"{rewrite.rewrite_id}: {rewrite.removed}. " + (_explanation(hard) or ""))[
+                        :MAX_EXPLANATION_CHARS
+                    ],
+                    rewritten_action=rewrite.rewritten,
+                    metadata={"rewrite_id": rewrite.rewrite_id, "removed": rewrite.removed},
+                )
             return DefenseDecision(
                 decision="block",
                 risk_score=round(risk, 4),

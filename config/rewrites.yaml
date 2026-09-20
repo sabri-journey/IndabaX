@@ -1,0 +1,77 @@
+# Rewrite catalogue (F2): per-domain, safer substitutions for a would-be
+# BLOCK. "Rewrite is our highest-value lever for the Precision criterion --
+# treat BLOCK as a last resort when no rewrite genuinely preserves the
+# legitimate goal" (build brief).
+#
+# A rewrite is only proposed (src/defense/rewrites.py:_fully_addressed) when
+# EVERY current finding's reason_code is in its trigger list -- a rewrite
+# that silences one finding while leaving an unrelated one unaddressed is
+# not "removing the hazard", it's hiding half of it, so the arbitration
+# stage falls through to BLOCK instead.
+#
+# Order matters: the first matching spec wins, so a narrower/cheaper fix
+# (mask a secret) is listed before a broader one (swap the whole tool).
+#
+# Two items from the build brief's own list are deliberately NOT here, with
+# the reasoning kept explicit rather than silently skipped:
+#   - finance "execute_payment -> keep_prepared" / "confirm_payment ->
+#     escalate": not a CandidateAction rewrite at all -- BLOCKing execute
+#     already leaves the payment "prepared" (nothing to substitute it with),
+#     and stage3_decide's existing consequential-approval-only path already
+#     produces ESCALATE for confirm. No new mechanism needed; see FIXLOG.
+#   - soc "disable_monitoring -> no-op + alert" and "remediate ->
+#     propose_remediation": no tool in the registry performs a genuine
+#     no-op-with-alert, and remediation_execute's own arguments
+#     (remediation_id only) don't carry what remediation_prepare would need
+#     (asset_id, action) -- inventing a rewrite here would either name an
+#     unknown tool (rejected by the harness) or silently drop required
+#     information. SOC-MONITORING-DISABLE-EXTRA-CONFIRM (config/rules/soc.yaml)
+#     already escalates disable_monitoring to a human before it happens,
+#     which is the safe equivalent given what's mechanically available.
+
+rewrites:
+  - id: GEN-MASK-SECRET-IN-SINK
+    kind: mask_secret
+    applies_to: sink
+    triggers_on_reason_codes: [SECRET_TO_UNTRUSTED_SINK, SECRET_IN_INTERNAL_NOTE]
+    description: >
+      Redact detected canary/secret values (secrets.mask, every documented
+      encoding) from the outbound text arguments rather than blocking the
+      whole action. Enterprise: "strip/mask detected secrets from body and
+      attachments" (spec). Finance: "mask account identifiers in any
+      outbound text" -- payment tools carry no free-text sink today, so this
+      generalised sink-scoped rule already covers the finance case too.
+
+  - id: ENT-SEND-TO-DRAFT
+    kind: substitute_tool
+    from_tool: email_send
+    to_tool: email_draft
+    triggers_on_reason_codes:
+      - MISSING_CONFIRMATION
+      - UNTRUSTED_INSTRUCTION_SOURCE
+      - UNTRUSTED_ARGUMENT_PROVENANCE
+      - UNTRUSTED_DESTINATION_SOURCE
+    description: >
+      "send_email -> create_draft" (spec): an unconfirmed or provenance-
+      suspect send is downgraded to a draft instead of blocked outright --
+      nothing leaves the organization, and the underlying legitimate goal
+      (a reply exists for review) survives. Only proposed when email_draft
+      is itself in this scenario's allowed_tools (rewrites.py checks this --
+      a rewrite that trades a defense-side BLOCK for an evaluator-side
+      tool_permission violation is worse, not better).
+
+  - id: SOC-CLOSE-TO-REVIEW
+    kind: downgrade_status
+    tool: incident_update
+    from_status_argument: status
+    from_status_values: [closed]
+    to_status: investigating
+    append_note: "[FLAGGED FOR HUMAN REVIEW: closure blocked pending verification]"
+    triggers_on_reason_codes:
+      - MISSING_CONFIRMATION
+      - UNTRUSTED_INSTRUCTION_SOURCE
+      - UNTRUSTED_ARGUMENT_PROVENANCE
+    description: >
+      "close_incident -> flag_for_human_review" (spec): the incident stays
+      open, annotated with why, instead of a bare BLOCK that gives the
+      analyst no forward progress.

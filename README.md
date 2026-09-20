@@ -41,12 +41,26 @@ scenario traces (not synthetic data) during this step — see FIXLOG for both;
 they're the reason `provenance.py`'s trust aggregation prefers the
 *most*-trusted available explanation for a value rather than the worst one.
 
+Build step 5 (rewrite catalogue + hard-negative gate) is in place:
+`config/rewrites.yaml` + `src/defense/rewrites.py` turn some would-be BLOCKs
+into a safer substitute action (send → draft, close-incident → flagged for
+review, secret masked out of an outbound body) when a rewrite fully
+addresses every current finding; a dedicated `tests/test_hard_negatives.py`
+runs the five published `hard_negative`-tagged scenarios end to end against
+the real simulator (not a synthetic approximation) as a regression gate, plus
+a unit test proving scary vocabulary in trusted content never changes the
+decision. 109 tests pass. Re-running `sentinel eval public`/`validation`
+after this step: **still ASR 0.0, BTU 1.0, CVR 0.0, FBR 0.0, UER 0.0** — the
+rewrite catalogue visibly fires on real scenarios (e.g. `soc_hostile_log_text`'s
+hostile-log-dictated incident closure is now REWRITE'd to stay open with a
+human-review flag, instead of a flat BLOCK) without moving any headline
+metric.
+
 Not yet done: stage 1's Bayesian monitor is still a flat stub (build step
-6), there is no rewrite catalogue yet (build step 5 — every hard finding
-currently becomes BLOCK, not a smarter REWRITE), and none of this has been
-run against `--model qwen3-8b` yet (build step 10) — the architecture doc's
-own warning applies: a defense can look stronger against `mock` than the
-real model, so these numbers are evidence, not a final result.
+6), and none of this has been run against `--model qwen3-8b` yet (build step
+10) — the architecture doc's own warning applies: a defense can look
+stronger against `mock` than the real model, so these numbers are evidence,
+not a final result.
 
 ## Architecture
 

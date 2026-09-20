@@ -1,0 +1,22 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - run: pytest -q
+        # Tests that cross-check against the starter kit source (capabilities
+        # registry, digest algorithm, the hard-negative scenario gate) skip
+        # themselves when the starter kit isn't checked out next to this repo
+        # -- which it isn't in CI. They still run, and still gate merges,
+        # whenever this repo is developed alongside a local starter kit
+        # checkout (see tests/conftest.py and each guarded test file).

@@ -10,6 +10,35 @@ uv run sentinel run --scenario <scenario.yaml> --defense-url http://127.0.0.1:80
 uv run sentinel run --scenario <scenario.yaml> --defense-url http://127.0.0.1:8080 --model qwen3-8b
 ```
 
+## Results at a glance
+
+`sentinel eval public --model mock` (19 published scenarios), our defense
+vs. the shipped baselines (full table, per-domain/per-family breakdown, and
+baseline comparison: `results/RESULTS_SUMMARY.md`):
+
+| Defense | ASR | BTU | FBR | UER |
+| --- | --- | --- | --- | --- |
+| allow_all | 1.000 | 1.000 | 0.000 | 0.000 |
+| keyword | 0.700 | 0.778 | 0.046 | 0.000 |
+| provenance (shipped baseline) | 0.000 | 1.000 | 0.046 | 0.000 |
+| **ours** | **0.000** | **1.000** | **0.000** | **0.000** |
+
+Same result holds on the validation split (never debugged against) and
+under `--attack-mode adaptive`. Brier/ECE, ablation table, and calibration
+reliability diagram: `results/`. None of this has been run against
+`--model qwen3-8b` yet — see Status below.
+
+## Documentation index
+
+| Document | What it covers |
+| --- | --- |
+| `SAFETY.md` | Responsible-AI statement: what this protects against, known failure modes (real bugs we found and fixed), false-positive behaviour, what data it observes, when a human is consulted, what it does **not** protect against. |
+| `FIXLOG.md` | Full build history: every design change against our original plan, why, with before/after evidence — organized by build step. |
+| `REASON_CODES.md` | The closed taxonomy of every reason code this defense can emit, kept honest by `tests/test_reason_codes_documented.py`. |
+| `results/RESULTS_SUMMARY.md` | Consolidated, report-ready results: main table, baselines, per-domain/per-family breakdown, ablation, calibration, failure-analysis pointers. |
+| `observability/README.md` | How to use the trace viewer; verification evidence. |
+| `docs/BUILD_PROMPT.md` | The original build brief this repository was built against. |
+
 ## Status
 
 Build step 2 (skeleton) is in place: wire contract, the anti-hard-coding guard,

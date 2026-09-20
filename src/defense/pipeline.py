@@ -28,5 +28,5 @@ def decide(request: DefenseRequest) -> DefenseDecision:
     ctx = normalise(ctx)
     session = default_store().get_or_create(ctx.session_key)
     policy = policy_evaluate(ctx, session)
-    bayes = bayes_update(ctx)
+    bayes = bayes_update(ctx, session, policy)
     return arbitrate(ctx, policy, bayes)

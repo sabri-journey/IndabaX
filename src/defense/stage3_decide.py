@@ -1,47 +1,63 @@
-"""Stage 3 -- decision arbitration (v1: policy + rewrite catalogue).
-
-TODO (build step 6): blend in stage 1's Bayesian session posterior and
-hysteresis (F3) on top of this. `bayes` currently only nudges `risk_score`
-since stage 1 is still a flat, uninformative stub.
+"""Stage 3 -- decision arbitration (v2: policy + rewrite catalogue + Bayes/hysteresis).
 
 Decision table:
-  - no findings at all                          -> ALLOW
+  - no stage-2 findings on THIS action, but stage
+    1's posterior has cleared (risk, confidence)
+    for `hysteresis_consecutive_steps` in a row,
+    AND the action is consequential-or-sink (UER
+    guard, F3)                                     -> ESCALATE
+    (SEQ_RISK_ACCUMULATION: a per-action review
+    would have allowed this; the session-level
+    posterior is what catches a fragmented/
+    multi-step/adaptive attack)
+  - no findings and no hysteresis-confirmed
+    session risk                                    -> ALLOW
   - any "hard" finding (not just missing
     approval -- see stage2_policy.CONFIRMATION_KINDS)
     at severity high/critical, AND a rewrite in
     config/rewrites.yaml fully addresses every
-    current finding                               -> REWRITE (F2: "rewrite
-                                                      is our highest-value
-                                                      lever for Precision;
-                                                      treat BLOCK as a last
-                                                      resort")
-  - ... same, but no rewrite fully addresses it   -> BLOCK
+    current finding                                 -> REWRITE (F2: "rewrite
+                                                        is our highest-value
+                                                        lever for Precision;
+                                                        treat BLOCK as a last
+                                                        resort")
+  - ... same, but no rewrite fully addresses it     -> BLOCK
   - only confirmation-kind findings remain, and
-    the candidate action is a plain tool_call     -> ESCALATE (this is what
-                                                      makes the harness ask
-                                                      the simulated human)
+    the candidate action is a plain tool_call       -> ESCALATE (this is what
+                                                        makes the harness ask
+                                                        the simulated human)
   - only confirmation-kind findings remain, and
     the candidate action is itself a
-    request_confirmation wrapper                  -> ALLOW (allowing the
-                                                      wrapper is what makes
-                                                      the harness ask the
-                                                      simulated human for
-                                                      *that* action; mirrors
-                                                      the shipped `provenance`
-                                                      baseline's handling of
-                                                      this action shape)
-  - only low/medium hard findings remain          -> ESCALATE (never silently
-                                                      allow a real finding,
-                                                      but don't block on weak
-                                                      evidence either)
+    request_confirmation wrapper                    -> ALLOW (allowing the
+                                                        wrapper is what makes
+                                                        the harness ask the
+                                                        simulated human for
+                                                        *that* action; mirrors
+                                                        the shipped `provenance`
+                                                        baseline's handling of
+                                                        this action shape)
+  - only low/medium hard findings remain            -> ESCALATE (never
+                                                        silently allow a real
+                                                        finding, but don't
+                                                        block on weak
+                                                        evidence either)
+
+In every branch where stage 2 *did* find something, `bayes.risk` only nudges
+the reported `risk_score` upward (`max(severity_risk, bayes.risk)`) -- the
+decision *kind* is still driven by the deterministic policy findings. The
+Bayesian signal only drives the decision kind by itself in the first branch
+above, precisely because that is the one case a per-action policy review
+cannot cover at all.
 """
 
 from __future__ import annotations
 
+from defense.capabilities import default_registry
 from defense.context import DecisionContext
 from defense.models import DefenseDecision
+from defense.provenance import target_action
 from defense.rewrites import propose_rewrite
-from defense.stage1_bayes import BayesResult
+from defense.stage1_bayes import BayesResult, cached_thresholds
 from defense.stage2_policy import PolicyVerdict
 
 SEVERITY_RANK = {"low": 0, "medium": 1, "high": 2, "critical": 3}
@@ -62,8 +78,31 @@ def _explanation(findings) -> str | None:
     return text[:MAX_EXPLANATION_CHARS]
 
 
+def _is_consequential_or_sink(ctx: DecisionContext) -> bool:
+    target = target_action(ctx.candidate_action)
+    if target.type != "tool_call" or target.tool is None:
+        return False
+    registry = default_registry()
+    if target.tool not in registry:
+        return False
+    capability = registry.get(target.tool)
+    return capability.is_consequential(target.arguments) or capability.sink
+
+
 def arbitrate(ctx: DecisionContext, policy: PolicyVerdict, bayes: BayesResult) -> DefenseDecision:
     if not policy.findings:
+        config = cached_thresholds()
+        if bayes.hysteresis_met and (
+            not config.bayes_escalation_requires_consequential_or_sink or _is_consequential_or_sink(ctx)
+        ):
+            return DefenseDecision(
+                decision="escalate",
+                risk_score=bayes.risk,
+                confidence=bayes.confidence,
+                reason_codes=["SEQ_RISK_ACCUMULATION", *bayes.reason_codes][:MAX_REASON_CODES],
+                explanation="accumulated session risk crossed threshold across multiple steps; "
+                "no single action triggered a policy rule",
+            )
         return DefenseDecision(
             decision="allow",
             risk_score=round(bayes.risk, 4),

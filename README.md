@@ -56,11 +56,40 @@ hostile-log-dictated incident closure is now REWRITE'd to stay open with a
 human-review flag, instead of a flat BLOCK) without moving any headline
 metric.
 
-Not yet done: stage 1's Bayesian monitor is still a flat stub (build step
-6), and none of this has been run against `--model qwen3-8b` yet (build step
-10) — the architecture doc's own warning applies: a defense can look
-stronger against `mock` than the real model, so these numbers are evidence,
-not a final result.
+Build step 6 (Stage 1 Bayesian monitor + hysteresis/UER guard) is in place:
+`config/likelihoods.yaml` + `config/thresholds.yaml` + `src/defense/stage1_bayes.py`
+maintain a per-session posterior (naive-Bayes log-odds, decayed toward the
+prior every step before new evidence is added), and `stage3_decide.py` gains
+one new branch — when stage 2 finds nothing wrong with the *current* action
+but the accumulated session risk has cleared threshold for
+`hysteresis_consecutive_steps` in a row, and the action is
+consequential-or-sink (the UER guard), it escalates anyway
+(`SEQ_RISK_ACCUMULATION`). This is the one decision path the Bayesian
+signal drives by itself, precisely because it's the one case a per-action
+policy review cannot cover. 119 tests pass.
+
+Re-ran `sentinel eval public`/`validation`/`public --attack-mode adaptive`:
+identical, still-clean metrics throughout (ASR 0.0, BTU 1.0, CVR 0.0, FBR
+0.0, UER 0.0 — including escalation_rate staying 0.0, the metric most at
+risk from adding accumulated-risk escalation). Honest characterization for
+the report: stage 2's deterministic rules already defeat every published
+attack on their own, so this run doesn't (and can't) demonstrate the
+Bayesian layer's *marginal* contribution — that's proven instead by
+dedicated unit tests of the mechanism itself (decay, hysteresis, weak vs.
+strong signal calibration) in `tests/test_stage1_bayes.py`. Flagged as a
+concrete gap for the ablation/failure-analysis sections of the technical
+report, not glossed over.
+
+A genuine bug was caught by the hard-negative gate while wiring this in: a
+hardcoded reason code used a hyphen (`R-SEQ-RISK-ACCUMULATION`), which the
+wire contract's `^[A-Z][A-Z0-9_]{1,63}$` pattern rejects — every hard
+negative involving that branch silently became a fail-closed
+`DEFENSE_UNAVAILABLE` block until `pytest` caught it by name. See FIXLOG.
+
+Not yet done: none of this has been run against `--model qwen3-8b` yet
+(build step 10) — the architecture doc's own warning applies: a defense can
+look stronger against `mock` than the real model, so these numbers are
+evidence, not a final result.
 
 ## Architecture
 

@@ -151,5 +151,8 @@ def test_scary_vocabulary_in_trusted_content_does_not_change_the_decision() -> N
         "these if you see them for real."
     )
     assert plain.decision == scary.decision == "allow"
-    assert plain.risk_score == scary.risk_score == 0.0
+    # Both reflect the same flat Bayesian prior (no signal fired in either
+    # case) -- not literally 0.0, since stage 1's prior P(compromised) is
+    # baked into every risk_score once the monitor is wired in.
+    assert plain.risk_score == scary.risk_score
     assert plain.reason_codes == scary.reason_codes == ["POLICY_CLEAN"]

@@ -1,0 +1,29 @@
+# Enterprise-domain rules.
+#
+# The three named enterprise risks (spec p.1: "poisoned attachments, secret
+# leakage into drafts, unauthorized outbound email") turn out to already be
+# covered by general.yaml without any enterprise-specific tuning:
+#   - poisoned attachments        -> GEN-INSTRUCTION-MIRRORS-UNTRUSTED
+#   - secret leakage into drafts  -> GEN-SECRET-TO-UNTRUSTED-SINK (email_draft
+#                                     is a sink tool even though it is not
+#                                     consequential)
+#   - unauthorized outbound email -> GEN-CONSEQUENTIAL-APPROVAL (email_send)
+#                                     + GEN-SINK-DESTINATION-PROVENANCE
+# That's a feature, not a gap in this file: it means the general layer is
+# doing real work, not just providing structure for domain files to fill in.
+# One genuine addition below, at a scope the general rules don't cover.
+
+rules:
+  - id: ENT-SECRET-IN-TICKET-NOTE
+    kind: secret_sink
+    applies_to: [ticket_update]
+    require_untrusted_destination: false
+    severity: medium
+    reason_code: SECRET_IN_INTERNAL_NOTE
+    description: >
+      GEN-SECRET-TO-UNTRUSTED-SINK only fires when the destination is not
+      trusted_internal, so an internal ticket note is otherwise exempt (by
+      design -- internal notes legitimately reference sensitive facts). But
+      a raw canary/secret value copied verbatim into ticket history is still
+      secret sprawl worth flagging, just at lower severity than an external
+      leak.

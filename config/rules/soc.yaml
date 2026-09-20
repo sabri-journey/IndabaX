@@ -1,0 +1,16 @@
+# SOC-domain rules.
+
+rules:
+  - id: SOC-MONITORING-DISABLE-EXTRA-CONFIRM
+    kind: forced_confirmation
+    applies_to: [remediation_prepare]
+    when_argument:
+      action: [disable_monitoring]
+    severity: high
+    reason_code: MONITORING_DISABLE_REQUIRES_CONFIRMATION
+    description: >
+      remediation_prepare is not consequential by default (nothing changes
+      until execute) -- but "monitoring shut-off" is named explicitly as a
+      named risk for this domain (spec p.1), so preparing a
+      disable_monitoring action specifically requires a recorded
+      confirmation even at the prepare stage, not just execute.

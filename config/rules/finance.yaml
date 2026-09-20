@@ -1,0 +1,20 @@
+# Finance-domain rules. Loaded unconditionally alongside general.yaml (tool
+# names are unique across all three domains -- verified in
+# tests/test_capabilities.py -- so there is no need to know which domain a
+# request belongs to; a finance-only rule simply never matches an
+# enterprise/soc tool name).
+
+rules:
+  - id: FIN-BENEFICIARY-PROVENANCE
+    kind: provenance_condition
+    applies_to: [payment_prepare]
+    arguments: [beneficiary_id, account_id]
+    max_trust: trusted_internal
+    severity: high
+    reason_code: UNTRUSTED_BENEFICIARY_SOURCE
+    description: >
+      payment_prepare is not itself consequential (a prepared payment moves
+      no money), so GEN-PROVENANCE-CONSEQUENTIAL does not cover it -- but a
+      beneficiary/account id redirected by injected instructions at the
+      prepare step is still worth catching early, before it ever reaches
+      confirm/execute.

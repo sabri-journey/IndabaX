@@ -25,10 +25,28 @@ and the canonical action digest (`digest.py`, cross-checked byte-for-byte
 against the harness's own algorithm). 66 tests pass, including 10 that
 cross-validate against the actual starter kit source on disk.
 
-Stage 0–3 decision logic itself (normalisation, Bayesian monitor, policy
-engine, arbitration) does not yet *use* these modules — see the `TODO`
-docstring in each `src/defense/stageN_*.py` and `FIXLOG.md` for progress
-against the build plan. `stage3_decide.arbitrate` still allows everything.
+Build step 4 (stage 0 + stage 2, wired end to end) is in place: stage 0
+normalises hidden/homoglyph/HTML tricks; stage 2 is a real Progent-style
+policy engine (`config/rules/{general,enterprise,finance,soc}.yaml`) using
+the capability registry, provenance tracer, secret detector, and state
+machine; stage 3 is a first (pre-Bayes, pre-rewrite) policy -> decision
+translation. 98 tests pass.
+
+First real `sentinel eval public --model mock` result (public split, 19
+scenarios): **ASR 0.0, BTU 1.0, CVR 0.0, FBR 0.0, UER 0.0, DFI 1.0** — every
+attack in the published library defeated, every benign task still completes,
+zero false blocks. Validation split (9 scenarios): the same, ASR/BTU/CVR/FBR/
+UER all clean. Two real false positives were found and fixed against actual
+scenario traces (not synthetic data) during this step — see FIXLOG for both;
+they're the reason `provenance.py`'s trust aggregation prefers the
+*most*-trusted available explanation for a value rather than the worst one.
+
+Not yet done: stage 1's Bayesian monitor is still a flat stub (build step
+6), there is no rewrite catalogue yet (build step 5 — every hard finding
+currently becomes BLOCK, not a smarter REWRITE), and none of this has been
+run against `--model qwen3-8b` yet (build step 10) — the architecture doc's
+own warning applies: a defense can look stronger against `mock` than the
+real model, so these numbers are evidence, not a final result.
 
 ## Architecture
 

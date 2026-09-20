@@ -28,6 +28,9 @@ class DecisionContext:
     provenance: tuple[ProvenanceRecord, ...]
     history_digest: HistoryDigest
     provenance_by_id: dict[str, ProvenanceRecord] = field(default_factory=dict)
+    # Populated by stage0_normalise.normalise(); empty for a context built
+    # directly (e.g. in tests) and never fed through stage 0.
+    normalisation_signals: tuple[str, ...] = ()
 
 
 def build_context(request: DefenseRequest) -> DecisionContext:

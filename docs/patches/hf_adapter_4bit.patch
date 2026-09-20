@@ -1,0 +1,52 @@
+diff --git a/src/sentinel/models/hf_adapter.py b/src/sentinel/models/hf_adapter.py
+index 7f2b320..fc6d8da 100644
+--- a/src/sentinel/models/hf_adapter.py
++++ b/src/sentinel/models/hf_adapter.py
+@@ -86,10 +86,43 @@ class HFModelAdapter(ModelAdapter):
+             raise ModelError("transformers is not installed; run `uv sync --extra hf`") from exc
+         resolved_device, resolved_dtype = resolve_runtime(device, dtype, torch.cuda.is_available())
+         self._tokenizer: Any = AutoTokenizer.from_pretrained(model_path, local_files_only=local_files_only)
+-        model: Any = AutoModelForCausalLM.from_pretrained(
+-            model_path, local_files_only=local_files_only, dtype=resolved_dtype
+-        )
+-        self._model: Any = model.to(resolved_device)
++        import os
++
++        if os.environ.get("SENTINEL_4BIT") == "1":
++            from transformers import BitsAndBytesConfig
++
++            # llm_int8_enable_fp32_cpu_offload is an 8-bit-only (LLM.int8())
++            # feature -- it does not properly support 4-bit (NF4) layers.
++            # Combined with device_map="auto" + a tight max_memory budget,
++            # accelerate placed most layers on CPU and tried to swap them
++            # back onto GPU mid-forward-pass; bitsandbytes' NF4 quant_state
++            # can't rematerialize from that "meta" placeholder, so the first
++            # generate() call crashed with
++            # "NotImplementedError: Cannot copy out of meta tensor; no data!"
++            # (reproduced and root-caused directly). Fix: no CPU offload at
++            # all -- an 8B model at 4-bit (NF4, double-quant) needs roughly
++            # 4-4.5GB of weights, which fits entirely on a 6GB GPU. Pin
++            # everything to cuda:0 with device_map={"": 0} instead of
++            # "auto"/max_memory, which sidesteps accelerate's offload-hook
++            # machinery entirely rather than tuning it.
++            bnb = BitsAndBytesConfig(
++                load_in_4bit=True,
++                bnb_4bit_quant_type="nf4",
++                bnb_4bit_compute_dtype=torch.float16,
++                bnb_4bit_use_double_quant=True,
++            )
++            self._model: Any = AutoModelForCausalLM.from_pretrained(
++                model_path,
++                local_files_only=local_files_only,
++                quantization_config=bnb,
++                dtype=torch.float16,
++                device_map={"": 0},
++            )
++        else:
++            model: Any = AutoModelForCausalLM.from_pretrained(
++                model_path, local_files_only=local_files_only, dtype=resolved_dtype
++            )
++            self._model = model.to(resolved_device)
+         self._max_new_tokens = max_new_tokens
+         self._max_context_chars = max_context_chars
+         self._enable_thinking = enable_thinking

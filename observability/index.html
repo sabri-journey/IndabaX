@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SENTINEL Defense — Observability Trace Viewer</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f7f7f8;
+    --panel: #ffffff;
+    --border: #e2e2e6;
+    --text: #1a1a1f;
+    --muted: #6b6b76;
+    --allow: #1a9e5c;
+    --block: #d3413c;
+    --escalate: #c97a1a;
+    --rewrite: #2563eb;
+    --chip-bg: #eef0f4;
+    --code-bg: #f1f2f5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16171b;
+      --panel: #1f2025;
+      --border: #303138;
+      --text: #eceef2;
+      --muted: #9a9aa5;
+      --chip-bg: #2a2b31;
+      --code-bg: #26272c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  header {
+    padding: 20px 24px 14px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  header h1 { font-size: 18px; margin: 0; }
+  header .sub { color: var(--muted); font-size: 13px; }
+  main { max-width: 1100px; margin: 0 auto; padding: 20px 24px 60px; }
+
+  #dropzone {
+    border: 2px dashed var(--border);
+    border-radius: 10px;
+    padding: 40px 20px;
+    text-align: center;
+    color: var(--muted);
+    margin-top: 24px;
+    cursor: pointer;
+  }
+  #dropzone.drag { border-color: var(--rewrite); color: var(--text); }
+  #dropzone input { display: none; }
+
+  #summary {
+    display: none;
+    gap: 12px;
+    margin: 20px 0;
+    flex-wrap: wrap;
+  }
+  .stat {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 16px;
+    min-width: 90px;
+  }
+  .stat .n { font-size: 20px; font-weight: 600; }
+  .stat .l { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .03em; }
+
+  #chart-wrap { display: none; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 20px; }
+  #chart-wrap h2 { font-size: 13px; margin: 0 0 8px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
+
+  #timeline { display: none; }
+  #timeline h2 { font-size: 13px; margin: 0 0 8px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
+
+  .row {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 8px;
+    overflow: hidden;
+  }
+  .row.allow { border-left-color: var(--allow); }
+  .row.block { border-left-color: var(--block); }
+  .row.escalate { border-left-color: var(--escalate); }
+  .row.rewrite { border-left-color: var(--rewrite); }
+
+  .row-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    cursor: pointer;
+    flex-wrap: wrap;
+  }
+  .row-head:hover { background: var(--code-bg); }
+  .step-no { color: var(--muted); font-variant-numeric: tabular-nums; width: 34px; flex: none; }
+  .tool { font-weight: 600; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .badge {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    padding: 2px 8px;
+    border-radius: 999px;
+    color: #fff;
+  }
+  .badge.allow { background: var(--allow); }
+  .badge.block { background: var(--block); }
+  .badge.escalate { background: var(--escalate); }
+  .badge.rewrite { background: var(--rewrite); }
+  .degraded-badge { font-size: 11px; font-weight: 700; color: #fff; background: #7a1acb; padding: 2px 8px; border-radius: 999px; }
+  .risk { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .codes { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+  .chip { background: var(--chip-bg); color: var(--muted); font-size: 11px; padding: 2px 8px; border-radius: 999px; font-family: ui-monospace, monospace; }
+
+  .row-body { display: none; padding: 4px 14px 16px 48px; border-top: 1px solid var(--border); }
+  .row.open .row-body { display: block; }
+  .row.open .chevron { transform: rotate(90deg); }
+  .chevron { transition: transform .15s; color: var(--muted); flex: none; }
+
+  .section { margin-top: 14px; }
+  .section h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); margin: 0 0 6px; }
+  pre {
+    background: var(--code-bg);
+    border-radius: 6px;
+    padding: 10px 12px;
+    overflow-x: auto;
+    font-size: 12.5px;
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .finding { border-left: 3px solid var(--border); padding: 4px 10px; margin-bottom: 6px; }
+  .finding.critical, .finding.high { border-left-color: var(--block); }
+  .finding.medium { border-left-color: var(--escalate); }
+  .finding.low { border-left-color: var(--muted); }
+  .finding .rid { font-family: ui-monospace, monospace; font-weight: 600; font-size: 12px; }
+  .finding .sev { font-size: 10px; text-transform: uppercase; color: var(--muted); margin-left: 6px; }
+  .diff-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .diff-pair > div h4 { font-size: 11px; color: var(--muted); margin: 0 0 4px; font-weight: 600; }
+  del { background: rgba(211,65,60,.18); text-decoration: none; }
+  .kv { color: var(--muted); font-size: 12.5px; }
+  footer { text-align: center; color: var(--muted); font-size: 12px; padding: 30px 0 10px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>SENTINEL Defense — Observability Trace Viewer</h1>
+  <span class="sub">Local, offline, single-file. Loads a JSONL trace produced by <code>src/defense/trace.py</code>.</span>
+</header>
+
+<main>
+  <div id="dropzone">
+    <div><strong>Drop a trace .jsonl file here</strong>, or click to choose one.</div>
+    <div style="margin-top:6px">Traces are written to <code>traces/&lt;session_key&gt;.jsonl</code> by the defense service.</div>
+    <input type="file" id="file-input" accept=".jsonl,.json,.log,.txt" />
+  </div>
+
+  <div id="summary"></div>
+  <div id="chart-wrap">
+    <h2>Risk trajectory across the session</h2>
+    <svg id="chart" width="100%" height="140" viewBox="0 0 1000 140" preserveAspectRatio="none"></svg>
+  </div>
+  <div id="timeline">
+    <h2>Timeline</h2>
+    <div id="rows"></div>
+  </div>
+</main>
+
+<footer>SENTINEL · IndabaX Tunisia 2026 — decisions never leave this page; everything renders client-side.</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  const dropzone = document.getElementById("dropzone");
+  const fileInput = document.getElementById("file-input");
+  const summaryEl = document.getElementById("summary");
+  const chartWrap = document.getElementById("chart-wrap");
+  const chartSvg = document.getElementById("chart");
+  const timelineEl = document.getElementById("timeline");
+  const rowsEl = document.getElementById("rows");
+
+  dropzone.addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", (e) => {
+    if (e.target.files[0]) readFile(e.target.files[0]);
+  });
+  ["dragenter", "dragover"].forEach((evt) =>
+    dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.add("drag"); })
+  );
+  ["dragleave", "drop"].forEach((evt) =>
+    dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.remove("drag"); })
+  );
+  dropzone.addEventListener("drop", (e) => {
+    const file = e.dataTransfer.files[0];
+    if (file) readFile(file);
+  });
+
+  function readFile(file) {
+    const reader = new FileReader();
+    reader.onload = () => render(parseJsonl(reader.result));
+    reader.readAsText(file);
+  }
+
+  // Optional convenience for deep-linking a trace when this page is served
+  // over http(s) (not file://, where fetch of a sibling file is blocked by
+  // the browser): index.html?trace=../traces/<session_key>.jsonl
+  (function loadFromQueryParam() {
+    const path = new URLSearchParams(location.search).get("trace");
+    if (!path) return;
+    fetch(path)
+      .then((r) => r.text())
+      .then((text) => render(parseJsonl(text)))
+      .catch((err) => {
+        dropzone.querySelector("div").textContent = "Could not load " + path + ": " + err;
+      });
+  })();
+
+  function parseJsonl(text) {
+    return text
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        try { return JSON.parse(line); } catch (e) { return null; }
+      })
+      .filter(Boolean)
+      .sort((a, b) => (a.step_id || 0) - (b.step_id || 0));
+  }
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    }[c]));
+  }
+
+  function actionLabel(action) {
+    if (!action) return "?";
+    if (action.type === "tool_call") return action.tool || "?";
+    if (action.type === "request_confirmation") {
+      const target = action.confirmation_for;
+      return "confirm(" + (target ? target.tool : "?") + ")";
+    }
+    return action.type;
+  }
+
+  function render(records) {
+    if (!records.length) {
+      dropzone.querySelector("div").textContent = "No valid JSONL records found in that file.";
+      return;
+    }
+    renderSummary(records);
+    renderChart(records);
+    renderTimeline(records);
+    summaryEl.style.display = "flex";
+    chartWrap.style.display = "block";
+    timelineEl.style.display = "block";
+    if (new URLSearchParams(location.search).get("expand") === "all") {
+      document.querySelectorAll(".row").forEach((r) => r.classList.add("open"));
+    }
+  }
+
+  function renderSummary(records) {
+    const counts = { allow: 0, block: 0, escalate: 0, rewrite: 0 };
+    let latencySum = 0, degraded = 0;
+    records.forEach((r) => {
+      const d = (r.decision && r.decision.decision) || "allow";
+      if (counts[d] !== undefined) counts[d]++;
+      latencySum += r.latency_ms || 0;
+      if (r.degraded) degraded++;
+    });
+    const avgLatency = (latencySum / records.length).toFixed(2);
+    const stats = [
+      ["Steps", records.length],
+      ["Allow", counts.allow],
+      ["Block", counts.block],
+      ["Escalate", counts.escalate],
+      ["Rewrite", counts.rewrite],
+      ["Avg latency", avgLatency + " ms"],
+    ];
+    if (degraded) stats.push(["Degraded", degraded]);
+    summaryEl.innerHTML = stats
+      .map(([l, n]) => `<div class="stat"><div class="n">${esc(n)}</div><div class="l">${esc(l)}</div></div>`)
+      .join("");
+  }
+
+  const COLORS = { allow: "#1a9e5c", block: "#d3413c", escalate: "#c97a1a", rewrite: "#2563eb" };
+
+  function renderChart(records) {
+    const W = 1000, H = 140, padL = 28, padR = 10, padT = 10, padB = 20;
+    const plotW = W - padL - padR, plotH = H - padT - padB;
+    const n = records.length;
+    const x = (i) => padL + (n <= 1 ? 0 : (i / (n - 1)) * plotW);
+    const y = (risk) => padT + (1 - Math.max(0, Math.min(1, risk))) * plotH;
+
+    let svg = "";
+    // gridlines at 0.25 / 0.5 / 0.75
+    [0.25, 0.5, 0.75].forEach((f) => {
+      svg += `<line x1="${padL}" y1="${y(f)}" x2="${W - padR}" y2="${y(f)}" stroke="currentColor" stroke-opacity="0.12" />`;
+    });
+    svg += `<line x1="${padL}" y1="${padT}" x2="${padL}" y2="${H - padB}" stroke="currentColor" stroke-opacity="0.3" />`;
+    svg += `<line x1="${padL}" y1="${H - padB}" x2="${W - padR}" y2="${H - padB}" stroke="currentColor" stroke-opacity="0.3" />`;
+
+    const pts = records.map((r, i) => `${x(i).toFixed(1)},${y(r.decision.risk_score || 0).toFixed(1)}`).join(" ");
+    svg += `<polyline points="${pts}" fill="none" stroke="#2563eb" stroke-width="2" opacity="0.5" />`;
+    records.forEach((r, i) => {
+      const d = (r.decision && r.decision.decision) || "allow";
+      svg += `<circle cx="${x(i).toFixed(1)}" cy="${y(r.decision.risk_score || 0).toFixed(1)}" r="4" fill="${COLORS[d] || "#999"}"><title>step ${r.step_id}: ${esc(actionLabel(r.candidate_action))} — ${d} (risk ${r.decision.risk_score})</title></circle>`;
+    });
+    chartSvg.innerHTML = svg;
+    chartSvg.style.color = getComputedStyle(document.body).color;
+  }
+
+  function findingsHtml(findings) {
+    if (!findings || !findings.length) return "";
+    return `<div class="section"><h3>Rules fired</h3>` +
+      findings.map((f) => `
+        <div class="finding ${esc(f.severity)}">
+          <span class="rid">${esc(f.rule_id)}</span><span class="sev">${esc(f.severity)} · ${esc(f.reason_code)}</span>
+          <div class="kv">${esc(f.message)}</div>
+        </div>
+      `).join("") + `</div>`;
+  }
+
+  function diffHtml(diffs) {
+    if (!diffs || !diffs.length) return "";
+    return `<div class="section"><h3>Hidden content stripped (stage 0)</h3>` +
+      diffs.map((d) => `
+        <div class="diff-pair" style="margin-bottom:8px">
+          <div><h4>Raw</h4><pre>${esc(d.raw)}</pre></div>
+          <div><h4>Visible (what the model reasons over)</h4><pre>${esc(d.visible)}</pre></div>
+        </div>
+      `).join("") + `</div>`;
+  }
+
+  function rewriteHtml(candidate, decision) {
+    if (decision.decision !== "rewrite" || !decision.rewritten_action) return "";
+    return `<div class="section"><h3>Original vs rewritten action</h3>
+      <div class="diff-pair">
+        <div><h4>Original</h4><pre>${esc(JSON.stringify(candidate, null, 2))}</pre></div>
+        <div><h4>Rewritten</h4><pre>${esc(JSON.stringify(decision.rewritten_action, null, 2))}</pre></div>
+      </div>
+      ${decision.metadata && decision.metadata.removed ? `<div class="kv" style="margin-top:6px">Removed/changed: ${esc(decision.metadata.removed)}</div>` : ""}
+    </div>`;
+  }
+
+  function bayesHtml(extras) {
+    if (!extras) return "";
+    const codes = (extras.bayes_reason_codes || []).map((c) => `<span class="chip">${esc(c)}</span>`).join(" ");
+    return `<div class="section"><h3>Session risk (stage 1)</h3>
+      <div class="kv">posterior risk ${esc(extras.bayes_risk)} · confidence ${esc(extras.bayes_confidence)} · hysteresis met: ${extras.hysteresis_met ? "yes" : "no"}</div>
+      ${codes ? `<div class="codes" style="margin-top:6px">${codes}</div>` : ""}
+    </div>`;
+  }
+
+  function renderTimeline(records) {
+    rowsEl.innerHTML = records.map((r, idx) => {
+      const dec = r.decision || {};
+      const d = dec.decision || "allow";
+      const codes = (dec.reason_codes || []).map((c) => `<span class="chip">${esc(c)}</span>`).join(" ");
+      const extras = r.extras || {};
+      const body = [
+        dec.explanation ? `<div class="section"><h3>Explanation</h3><pre>${esc(dec.explanation)}</pre></div>` : "",
+        findingsHtml(extras.findings),
+        rewriteHtml(r.candidate_action, dec),
+        diffHtml(extras.hidden_text_diffs),
+        bayesHtml(extras),
+        `<div class="section"><h3>Candidate action</h3><pre>${esc(JSON.stringify(r.candidate_action, null, 2))}</pre></div>`,
+        `<div class="kv" style="margin-top:10px">latency ${esc((r.latency_ms || 0).toFixed(2))} ms · run ${esc(r.run_id)} · ${esc(r.ts)}</div>`,
+      ].join("");
+
+      return `
+        <div class="row ${esc(d)}" data-idx="${idx}">
+          <div class="row-head" onclick="this.parentElement.classList.toggle('open')">
+            <span class="chevron">▸</span>
+            <span class="step-no">#${esc(r.step_id)}</span>
+            <span class="tool">${esc(actionLabel(r.candidate_action))}</span>
+            <span class="badge ${esc(d)}">${esc(d)}</span>
+            ${r.degraded ? '<span class="degraded-badge">degraded</span>' : ""}
+            <span class="risk">risk ${esc(dec.risk_score)} · conf ${esc(dec.confidence)}</span>
+            <span class="codes">${codes}</span>
+          </div>
+          <div class="row-body">${body}</div>
+        </div>`;
+    }).join("");
+  }
+})();
+</script>
+
+</body>
+</html>

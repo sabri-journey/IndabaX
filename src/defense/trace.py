@@ -29,6 +29,7 @@ def append(
     candidate_action: dict[str, Any],
     decision: dict[str, Any],
     latency_ms: float | None = None,
+    extras: dict[str, Any] | None = None,
     trace_dir: Path = DEFAULT_TRACE_DIR,
 ) -> None:
     trace_dir.mkdir(parents=True, exist_ok=True)
@@ -42,6 +43,9 @@ def append(
         "decision": decision,
         "latency_ms": latency_ms,
         "degraded": bool(decision.get("metadata", {}).get("degraded", False)),
+        # Observability-only detail (F7), never fed back into decision logic:
+        # per-rule findings, raw-vs-visible text diffs, Bayesian internals.
+        "extras": extras or {},
     }
     line = json.dumps(record, sort_keys=True, separators=(",", ":"))
     with _LOCK, path.open("a", encoding="utf-8") as fh:

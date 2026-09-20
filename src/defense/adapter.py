@@ -39,8 +39,18 @@ async def decision(http_request: Request) -> DefenseDecision:
     request = DefenseRequest.model_validate(raw)
 
     start = trace.timer()
+    extras: dict = {}
     try:
-        result = pipeline.decide(request)
+        result, trace_extras = pipeline.decide_with_trace(request)
+        extras = {
+            "findings": list(trace_extras.findings),
+            "normalisation_signals": list(trace_extras.normalisation_signals),
+            "hidden_text_diffs": list(trace_extras.hidden_text_diffs),
+            "bayes_risk": trace_extras.bayes_risk,
+            "bayes_confidence": trace_extras.bayes_confidence,
+            "bayes_reason_codes": list(trace_extras.bayes_reason_codes),
+            "hysteresis_met": trace_extras.hysteresis_met,
+        }
     except Exception:
         logger.exception("decision pipeline failed at step %s", request.step_id)
         result = _degraded_decision(request)
@@ -53,6 +63,7 @@ async def decision(http_request: Request) -> DefenseDecision:
         candidate_action=request.candidate_action.model_dump(mode="json"),
         decision=result.model_dump(mode="json"),
         latency_ms=latency_ms,
+        extras=extras,
     )
     return result
 

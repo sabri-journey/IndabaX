@@ -141,6 +141,20 @@ demonstrated contribution here is architectural safety-net coverage
 calibration cost, not a change in outcome on this specific library. Stated
 plainly in FIXLOG rather than oversold.
 
+Build step 8 (observability dashboard, F7) is in place:
+`observability/index.html` is a single, self-contained, offline trace
+viewer (no server, no build step, no external resources) — a summary bar,
+a risk-trajectory chart across the session, and a timeline where each step
+expands to show every rule that fired (with its provenance chain), the
+Bayesian internals, and — for `rewrite` decisions — the original action and
+its rewritten replacement side by side. `src/defense/pipeline.py` gained
+`decide_with_trace`, which returns this detail (findings, hidden-text
+diffs, session-risk internals) alongside the decision purely for the trace;
+`decide()` is a one-line wrapper around it, so there is no risk of the two
+diverging. Visually verified against two real generated traces via headless
+Chrome (screenshots in `observability/screenshots/`) — not just static code
+review; see `observability/README.md`. 134 tests pass.
+
 Not yet done: none of this has been run against `--model qwen3-8b` yet
 (build step 10) — the architecture doc's own warning applies: a defense can
 look stronger against `mock` than the real model, so these numbers are

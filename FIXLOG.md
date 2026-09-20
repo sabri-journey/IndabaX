@@ -698,3 +698,88 @@ tried so far), Brier/ECE now in the same range as the no-bayes baseline. See
   available on disk (same guard pattern as the hard-negative gate); it is a
   development-time tool, not something the submitted service depends on at
   runtime.
+
+## Build step 8 -- observability dashboard (F7)
+
+### Trace enrichment: decide_with_trace
+
+`src/defense/pipeline.py` gained `decide_with_trace(request) ->
+(DefenseDecision, TraceExtras)`. `TraceExtras` carries everything the
+dashboard needs that the wire-level `DefenseDecision` doesn't expose: every
+stage-2 `Finding` (rule id, kind, severity, reason code, and the provenance-
+chain message that triggered it), raw-vs-visible text pairs wherever stage 0
+stripped hidden content, and the stage-1 Bayesian internals (posterior risk,
+confidence, which signals fired, hysteresis state). `decide()` is now a
+one-line wrapper (`decision, _ = decide_with_trace(request); return
+decision`) rather than a separate code path, so the two can't silently
+diverge. `trace.py.append()` gained an `extras` parameter, written into the
+JSONL record as a sibling of `decision` -- purely for observability, never
+read back by anything in the decision path.
+
+Files: `src/defense/pipeline.py`, `src/defense/trace.py`,
+`src/defense/adapter.py`, `tests/test_pipeline_trace_extras.py` (3 tests:
+`decide`/`decide_with_trace` agree on the decision itself, findings are
+captured, hidden-text diffs are captured).
+
+### The dashboard
+
+`observability/index.html`: single self-contained file, vanilla JS, no
+external resources (fonts, CDNs, libraries) -- opens directly via `file://`
+or any static server, works fully offline like the rest of this project.
+Renders, per the F7 checklist in the build brief:
+
+- a summary bar (step count, decision-kind counts, average latency);
+- a hand-drawn SVG risk-trajectory chart across the session, points
+  colour-coded by decision kind -- this is what makes a multi-step pattern
+  legible on camera, not just a single step's score;
+- a timeline, one row per step, colour-coded by decision, reason-code chips
+  visible without expanding;
+- on expand: explanation text, every rule that fired (severity, reason
+  code, the provenance-chain message), original-vs-rewritten action side by
+  side for `rewrite` decisions, raw-vs-visible text side by side wherever
+  stage 0 stripped hidden content, and the stage-1 internals (posterior
+  risk, confidence, which signals fired, hysteresis state).
+
+Every attacker-controllable field is passed through a consistent `esc()`
+helper before being placed in the DOM -- this page's entire purpose is to
+safely render adversarial payloads (a hostile log line, a poisoned
+document), so escaping discipline matters more here than in an ordinary
+internal tool.
+
+### Verification
+
+The browser-automation tool's extension wasn't connected in this
+environment, so the usual "open it in a browser and look" step wasn't
+directly available. Used headless Chrome instead
+(`google-chrome --headless --screenshot=...`, already installed, no new
+dependency): served the repo with `python3 -m http.server`, generated two
+real traces (`enterprise_poisoned_invoice`, `soc_hostile_log_text`) against
+the actual running defense, and screenshotted the loaded, fully-expanded
+page. Confirmed by inspecting the screenshots directly (not just "it didn't
+crash"): the risk-trajectory chart correctly shows the spike at the BLOCKed
+step and the decay afterward; the expanded BLOCK row shows all three rules
+that fired with readable provenance-chain text; the expanded REWRITE row
+shows the original `status: closed` action and the rewritten
+`status: investigating` action with the review-flag note appended, side by
+side, plus the two rules that justified it. Added two small, permanent,
+low-risk conveniences that made this possible and remain generally useful:
+`?trace=<path>` (deep-link a trace when served over http) and `&expand=all`
+(auto-expand every row, useful for a printable/scrollable full-session view
+during the video). Screenshots kept in `observability/screenshots/` as
+evidence.
+
+Files: `observability/index.html`, `observability/README.md`,
+`observability/screenshots/*.png`.
+
+### Residual risk
+
+- No automated test exercises the client-side JS (no Node/browser-test
+  dependency was added, consistent with staying pure-Python/offline for
+  everything else in this repo) -- verification is the screenshot evidence
+  above, not a regression-tested suite. A future JS change could silently
+  break rendering without a test catching it.
+- The dashboard reads whatever JSONL file the user points it at; it does
+  not validate the trace schema beyond "each line parses as JSON" -- a
+  malformed or truncated trace degrades gracefully (rows with missing
+  fields render blank/"?" rather than crashing the whole page), but this
+  wasn't exhaustively fuzzed.

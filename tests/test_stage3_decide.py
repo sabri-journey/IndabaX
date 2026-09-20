@@ -127,12 +127,71 @@ def test_hysteresis_not_yet_met_allows() -> None:
     assert decision.decision == "allow"
 
 
+def test_clean_allow_never_reports_elevated_session_risk_as_its_own() -> None:
+    """Real calibration bug found during build step 7's ablation run:
+    bayes.risk is a SESSION-level posterior, not this action's own
+    legitimacy score. An action stage 2 found nothing wrong with, that we
+    are simultaneously ALLOWing, must not report a high risk_score just
+    because session suspicion happens to still be elevated below the
+    escalation threshold -- that is self-contradictory and was the dominant
+    driver of a Brier/ECE regression (0.036 -> 0.309 with bayes wired in)."""
+    from defense.stage1_bayes import cached_thresholds
+
+    hot_but_not_hysteresis = BayesResult(risk=0.9, confidence=0.3, reason_codes=(), hysteresis_met=False)
+    decision = arbitrate(_tool_call_ctx(), PolicyVerdict(findings=()), hot_but_not_hysteresis)
+    assert decision.decision == "allow"
+    assert decision.risk_score <= cached_thresholds().prior_p_compromised
+
+
 def test_uer_guard_hysteresis_does_not_escalate_a_read_only_action() -> None:
     """UER guard (F3): the accumulated-risk signal alone must never escalate
     a non-consequential, non-sink action -- that's exactly what the
     Unnecessary Escalation Rate metric penalises."""
     decision = arbitrate(_read_only_ctx(), PolicyVerdict(findings=()), HYSTERESIS_MET)
     assert decision.decision == "allow"
+
+
+def test_uer_guard_hysteresis_does_not_escalate_an_internal_only_sink() -> None:
+    """Real false positive found during build step 7's ablation run:
+    case_note_create/incident_create are sinks, but their destination is
+    fixed to trusted_internal -- writing a note about untrusted-sourced
+    facts is exactly the legitimate work SENTINEL's hard-negative scenarios
+    test for, not a risk, however much session-level suspicion has
+    accumulated elsewhere in the run."""
+    action = CandidateAction(type="tool_call", tool="case_note_create", arguments={"case_id": "CASE-7001", "text": "t"})
+    ctx = DecisionContext(
+        session_key="s1",
+        step_id=1,
+        user_goal="g",
+        conversation=(),
+        observation=None,
+        candidate_action=action,
+        policy_context={},
+        provenance=(),
+        history_digest=HistoryDigest(),
+    )
+    decision = arbitrate(ctx, PolicyVerdict(findings=()), HYSTERESIS_MET)
+    assert decision.decision == "allow"
+
+
+def test_hysteresis_escalates_a_dynamic_destination_sink() -> None:
+    """The other side of the same boundary: email_draft/email_send CAN
+    reach outside the organization ("dynamic" destination), so they remain
+    in scope for the pure-accumulated-risk escalation."""
+    action = CandidateAction(type="tool_call", tool="email_draft", arguments={"to": "x@example.com", "subject": "s", "body": "b"})
+    ctx = DecisionContext(
+        session_key="s1",
+        step_id=1,
+        user_goal="g",
+        conversation=(),
+        observation=None,
+        candidate_action=action,
+        policy_context={},
+        provenance=(),
+        history_digest=HistoryDigest(),
+    )
+    decision = arbitrate(ctx, PolicyVerdict(findings=()), HYSTERESIS_MET)
+    assert decision.decision == "escalate"
 
 
 def test_reason_codes_valid_on_hysteresis_escalation() -> None:

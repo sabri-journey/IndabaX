@@ -52,6 +52,7 @@ cannot cover at all.
 
 from __future__ import annotations
 
+from defense import ablation
 from defense.capabilities import default_registry
 from defense.context import DecisionContext
 from defense.models import DefenseDecision
@@ -78,7 +79,20 @@ def _explanation(findings) -> str | None:
     return text[:MAX_EXPLANATION_CHARS]
 
 
-def _is_consequential_or_sink(ctx: DecisionContext) -> bool:
+def _is_consequential_or_external_sink(ctx: DecisionContext) -> bool:
+    """UER guard boundary for the pure-accumulated-risk escalation branch.
+
+    Deliberately narrower than "any sink": a sink whose destination is fixed
+    to trusted_internal (case_note_create, incident_create, ticket_update,
+    incident_update -- writing a note or opening an incident) is exactly the
+    hard-negative case SENTINEL warns against over-blocking -- recording
+    untrusted-sourced facts internally is legitimate work, not a risk, no
+    matter how much session-level suspicion has accumulated elsewhere in the
+    run. Found as a real false positive during build step 7's ablation run
+    (SEQ_RISK_ACCUMULATION firing on a legitimate case_note_create /
+    incident_create call); see FIXLOG. Only a consequential action, or a
+    sink that could actually leave the organization ("dynamic" destination,
+    e.g. email), is in scope here."""
     target = target_action(ctx.candidate_action)
     if target.type != "tool_call" or target.tool is None:
         return False
@@ -86,14 +100,16 @@ def _is_consequential_or_sink(ctx: DecisionContext) -> bool:
     if target.tool not in registry:
         return False
     capability = registry.get(target.tool)
-    return capability.is_consequential(target.arguments) or capability.sink
+    if capability.is_consequential(target.arguments):
+        return True
+    return capability.sink and "dynamic" in capability.destination_tags
 
 
 def arbitrate(ctx: DecisionContext, policy: PolicyVerdict, bayes: BayesResult) -> DefenseDecision:
     if not policy.findings:
         config = cached_thresholds()
         if bayes.hysteresis_met and (
-            not config.bayes_escalation_requires_consequential_or_sink or _is_consequential_or_sink(ctx)
+            not config.bayes_escalation_requires_consequential_or_sink or _is_consequential_or_external_sink(ctx)
         ):
             return DefenseDecision(
                 decision="escalate",
@@ -103,9 +119,21 @@ def arbitrate(ctx: DecisionContext, policy: PolicyVerdict, bayes: BayesResult) -
                 explanation="accumulated session risk crossed threshold across multiple steps; "
                 "no single action triggered a policy rule",
             )
+        # `bayes.risk` is a SESSION-level posterior (P(this session is
+        # compromised)), not a per-action legitimacy score -- Brier/ECE are
+        # computed per DECISION, against whether THIS action is legitimate
+        # (docs/scoring.md). Reporting the raw session posterior here was a
+        # real calibration bug found during build step 7's ablation run: an
+        # action stage 2 found nothing wrong with, that we are simultaneously
+        # ALLOWing, would self-contradictorily report risk_score up to 0.99
+        # whenever session suspicion happened to still be elevated (even
+        # below the escalation threshold). Capped at the prior: a clean,
+        # allowed action's own risk is "baseline," never inflated by
+        # unrelated session history it didn't itself contribute evidence to.
+        risk_score = min(bayes.risk, config.prior_p_compromised)
         return DefenseDecision(
             decision="allow",
-            risk_score=round(bayes.risk, 4),
+            risk_score=round(risk_score, 4),
             confidence=max(bayes.confidence, 0.6),
             reason_codes=["POLICY_CLEAN"],
             explanation=None,
@@ -118,7 +146,7 @@ def arbitrate(ctx: DecisionContext, policy: PolicyVerdict, bayes: BayesResult) -
         worst = max((f.severity for f in hard), key=lambda s: SEVERITY_RANK[s])
         risk = max(SEVERITY_RISK[worst], bayes.risk)
         if SEVERITY_RANK[worst] >= SEVERITY_RANK["high"]:
-            rewrite = propose_rewrite(ctx, policy.findings)
+            rewrite = propose_rewrite(ctx, policy.findings) if ablation.rewrites_enabled() else None
             if rewrite is not None:
                 return DefenseDecision(
                     decision="rewrite",

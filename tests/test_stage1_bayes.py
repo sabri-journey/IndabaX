@@ -107,6 +107,27 @@ def test_decay_lets_risk_fall_after_evidence_stops() -> None:
     assert risk < peak, "risk must decay back down once evidence stops arriving"
 
 
+def test_stale_residual_evidence_does_not_sustain_hysteresis_on_a_clean_step() -> None:
+    """Real false positive found during build step 7's ablation run: a
+    single strong-evidence step (e.g. an attack that stage 2 already
+    BLOCKed) must not, by itself, make hysteresis_met True on the very next
+    step just because the decayed posterior number still sits above
+    threshold -- only a weak signal (UNTRUSTED_CONTENT_OBSERVED) fires on
+    that clean next step, which must not count as "fresh strong evidence"."""
+    session = SessionState(session_key="s1")
+    ctx_hot = _ctx()
+    hot = PolicyVerdict(findings=(_finding("UNTRUSTED_INSTRUCTION_SOURCE"),))
+    for _ in range(4):
+        update(ctx_hot, session, hot)
+    peak = update(ctx_hot, session, hot)
+    assert peak.risk >= CONFIG.escalate_risk_threshold  # confirm we actually got the posterior hot
+
+    clean_ctx = _ctx(provenance_records=(_untrusted_provenance_record(),))  # only the weak signal fires
+    clean = PolicyVerdict()
+    next_step = update(clean_ctx, session, clean)
+    assert not next_step.hysteresis_met
+
+
 def test_hysteresis_streak_resets_on_a_clean_step() -> None:
     session = SessionState(session_key="s1")
     ctx = _ctx()

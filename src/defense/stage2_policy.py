@@ -42,6 +42,7 @@ from typing import Any
 
 import yaml
 
+from defense import ablation
 from defense.capabilities import CapabilityRegistry, default_registry
 from defense.context import DecisionContext
 from defense.digest import action_digest
@@ -70,6 +71,26 @@ SENSITIVE_LEVELS = {"confidential", "restricted"}
 # candidates). Everything else is a hard mismatch/hijack signal, not a
 # paperwork gap.
 CONFIRMATION_KINDS = frozenset({"consequential_approval", "forced_confirmation"})
+
+# Which rule kinds each ablation.py toggle disables (F6) -- grouped by which
+# shared module the kind actually depends on, not by name similarity:
+# sensitive_sink depends on provenance.trace_bulk_text, not secrets.py, so it
+# groups with the provenance kinds despite the "sink" in its name.
+_STATE_MACHINE_KINDS = frozenset({"prerequisite", "consequential_approval", "forced_confirmation"})
+_PROVENANCE_KINDS = frozenset(
+    {"provenance_condition", "destination_provenance", "instruction_mirrors_untrusted", "sensitive_sink"}
+)
+_SECRET_DETECTOR_KINDS = frozenset({"secret_sink"})
+
+
+def _ablation_enabled(kind: str) -> bool:
+    if kind in _STATE_MACHINE_KINDS and not ablation.state_machine_rules_enabled():
+        return False
+    if kind in _PROVENANCE_KINDS and not ablation.provenance_rules_enabled():
+        return False
+    if kind in _SECRET_DETECTOR_KINDS and not ablation.secret_detector_rules_enabled():
+        return False
+    return True
 
 
 @dataclass(frozen=True)
@@ -211,6 +232,9 @@ def evaluate(ctx: DecisionContext, session: SessionState, registry: CapabilityRe
     findings: list[Finding] = []
 
     for rule in rules:
+        if not _ablation_enabled(rule.kind):
+            continue
+
         if rule.kind == "tool_permission":
             if tool not in ctx.policy_context.get("allowed_tools", []):
                 findings.append(

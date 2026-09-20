@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="420" height="420" viewBox="0 0 420 420">
+  <rect width="420" height="420" fill="white" />
+  <line x1="40" y1="380" x2="380" y2="380" stroke="#333" />
+  <line x1="40" y1="40" x2="40" y2="380" stroke="#333" />
+  <line x1="40.0" y1="380.0" x2="380.0" y2="40.0" stroke="#999" stroke-dasharray="4,4" />
+  <polyline points="74.0,368.3 210.0,380.0 244.0,40.0 376.1,70.9" fill="none" stroke="#2563eb" stroke-width="2" />
+  <circle cx="74.0" cy="368.3" r="4" fill="#2563eb" /><circle cx="210.0" cy="380.0" r="4" fill="#2563eb" /><circle cx="244.0" cy="40.0" r="4" fill="#2563eb" /><circle cx="376.1" cy="70.9" r="4" fill="#2563eb" />
+  <text x="210.0" y="412" text-anchor="middle" font-size="12" font-family="sans-serif">mean predicted risk</text>
+  <text x="12" y="210.0" text-anchor="middle" font-size="12" font-family="sans-serif" transform="rotate(-90 12 210.0)">observed illegitimate fraction</text>
+  <text x="40" y="20" font-size="12" font-family="sans-serif" fill="#666">dashed line = perfect calibration</text>
+</svg>

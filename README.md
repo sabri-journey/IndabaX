@@ -86,6 +86,61 @@ wire contract's `^[A-Z][A-Z0-9_]{1,63}$` pattern rejects — every hard
 negative involving that branch silently became a fail-closed
 `DEFENSE_UNAVAILABLE` block until `pytest` caught it by name. See FIXLOG.
 
+Build step 7 (calibration + ablation) is in place: `src/defense/ablation.py`
+gives every major component an environment-variable off-switch;
+`scripts/run_ablation.py` runs the full published library once per
+configuration (a real subprocess, real HTTP calls) and writes
+`results/ablation.md`; `scripts/calibrate.py` turns a `sentinel eval --json`
+report into a 10-bin reliability table + a hand-drawn SVG reliability
+diagram (`results/*_calibration.{md,svg}`), no plotting dependency. 131
+tests pass.
+
+This step caught two more real bugs, on top of the wire-format one from
+build step 6 — this time specifically because the ablation harness stress-tests
+component *combinations* a hand-picked unit test wouldn't think to construct:
+
+1. **UER regression** (0.0 → 0.091 on the public split): the Bayesian
+   escalation branch's UER guard treated any *sink* tool as escalation-
+   eligible, including internal-only sinks (`case_note_create`,
+   `incident_create`) — writing a note about untrusted-sourced facts is
+   legitimate, hard-negative-shaped work, not a risk. Narrowed to
+   consequential-or-*external*-sink only.
+2. **A second, subtler UER edge** (0.091 → 0.023): hysteresis was tracking
+   "is the decayed posterior number still above threshold," which a single
+   strong-evidence step (already correctly BLOCKed) could satisfy for the
+   *next*, entirely clean action for free. Redefined hysteresis to require a
+   *strong* signal (not just the deliberately-weak
+   `UNTRUSTED_CONTENT_OBSERVED`/`MISSING_CONFIRMATION`) to have fired fresh
+   on each counted step. UER is now **0.0** across every ablation
+   configuration.
+3. **A real calibration bug** (Brier 0.309 → 0.051, ECE 0.330 → 0.075): the
+   clean-`ALLOW` branch reported the raw *session-level* Bayesian posterior
+   as the *per-action* `risk_score` — so a policy-clean action being
+   correctly `ALLOW`ed could self-contradictorily report `risk_score≈0.99`.
+   Capped a clean allow's reported risk at the prior; the session-level
+   number is what drives (and is reported by) the escalation branch instead,
+   where it actually means something.
+
+All three are documented in full in FIXLOG, each with the reproduction and
+the before/after evidence — this is exactly the kind of finding the
+ablation/calibration work is supposed to surface, not something to hide.
+
+`results/ablation.md` (public split, `--model mock`), current:
+
+| config | btu | asr | cvr | fbr | uer | tui | dfi | brier | ece |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| full | 1.000 | 0.000 | 0.000 | 0.000 | 0.000 | 0.967 | 1.000 | 0.051 | 0.075 |
+| no_bayes | 1.000 | 0.000 | 0.000 | 0.000 | 0.000 | 0.967 | 1.000 | 0.036 | 0.057 |
+| rules_only | 1.000 | 0.000 | 0.000 | 0.000 | 0.000 | 0.983 | 1.000 | 0.035 | 0.055 |
+
+ASR/BTU/CVR/FBR/UER/DFI are identical (and clean) across every ablated
+configuration — on the current published library, the deterministic rules
+in stage 2 alone already defeat every attack; the Bayesian layer's honest,
+demonstrated contribution here is architectural safety-net coverage
+(proven by dedicated unit tests, see build step 6) plus a small, real
+calibration cost, not a change in outcome on this specific library. Stated
+plainly in FIXLOG rather than oversold.
+
 Not yet done: none of this has been run against `--model qwen3-8b` yet
 (build step 10) — the architecture doc's own warning applies: a defense can
 look stronger against `mock` than the real model, so these numbers are

@@ -60,6 +60,7 @@ class BayesConfig:
     hysteresis_consecutive_steps: int = 2
     bayes_escalation_requires_consequential_or_sink: bool = True
     evidence_scale: float = 6.0
+    strong_signal_likelihood_ratio: float = 3.0
 
 
 @dataclass(frozen=True)
@@ -103,6 +104,9 @@ def load_thresholds(path: Path = DEFAULT_THRESHOLDS_PATH) -> BayesConfig:
             )
         ),
         evidence_scale=float(raw.get("evidence_scale", defaults.evidence_scale)),
+        strong_signal_likelihood_ratio=float(
+            raw.get("strong_signal_likelihood_ratio", defaults.strong_signal_likelihood_ratio)
+        ),
     )
 
 
@@ -178,7 +182,22 @@ def update(
     risk = _log_odds_to_p(state["log_odds"])
     confidence = 1.0 - math.exp(-state["evidence_weight"] / config.evidence_scale)
 
-    crossed = risk >= config.escalate_risk_threshold and confidence >= config.escalate_confidence_threshold
+    # Hysteresis counts consecutive steps of *fresh, active* evidence, not
+    # "the decayed posterior number happens to still sit above threshold
+    # from evidence several steps ago." Found as a real false positive
+    # during build step 7's ablation run: after a hard finding correctly
+    # BLOCKs an attack step, the very next -- entirely clean -- legitimate
+    # action inherited enough residual log-odds from that one step to read
+    # as "still crossed" and got swept into SEQ_RISK_ACCUMULATION. Requiring
+    # a strong signal (not just the deliberately-weak
+    # UNTRUSTED_CONTENT_OBSERVED/MISSING_CONFIRMATION signals) to have fired
+    # on THIS step is what "sustained" is supposed to mean.
+    strong_fired_this_step = any(spec.likelihood_ratio >= config.strong_signal_likelihood_ratio for spec in fired)
+    crossed = (
+        risk >= config.escalate_risk_threshold
+        and confidence >= config.escalate_confidence_threshold
+        and strong_fired_this_step
+    )
     state["streak"] = state["streak"] + 1 if crossed else 0
     hysteresis_met = state["streak"] >= config.hysteresis_consecutive_steps
 

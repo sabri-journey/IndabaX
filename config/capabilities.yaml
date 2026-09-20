@@ -1,0 +1,239 @@
+# Per-tool capability metadata (F1).
+#
+# Vocabulary matches the simulator's own Tool.is_consequential(args)
+# (src/sentinel/tools/base.py) and PolicyEngine rule kinds
+# (src/sentinel/core/policies.py) so our decisions and the evaluator's own
+# labels speak the same language. Every entry below was read directly off
+# src/sentinel/domains/{enterprise,finance,soc}/tools.py in the starter kit --
+# not guessed -- and is cross-checked against that source in
+# tests/test_capabilities_against_simulator.py when the starter kit is
+# available on disk.
+#
+# Tool names are unique across all three domains (verified: 9 + 8 + 8 = 25,
+# no collisions), so this is a flat map keyed by tool name only -- no need to
+# know which domain a request belongs to, which the wire contract does not
+# reliably expose anyway (see docs/BUILD_PROMPT.md F9 discussion of run_id).
+#
+# Fields:
+#   consequential        true | false | conditional
+#   consequential_when    present only when consequential: conditional --
+#                          {argument_name: [trigger values]}, mirrors
+#                          STATUS_CONSEQUENTIAL in the simulator's own
+#                          defenses/baselines/common.py
+#   reversible            can a human or the agent undo the effect with a
+#                          tool that exists in this registry?
+#   sink                  does this tool's call carry free text to a
+#                          destination outside the agent's own reasoning
+#                          (email, note, ticket, incident)?
+#   destination_tags       fixed trust tag(s) for the sink, or ["dynamic"]
+#                          when it depends on a runtime argument (e.g. the
+#                          recipient's email domain -- see recipient_trust()
+#                          in tools/base.py, which our own provenance module
+#                          replicates using policy_context.internal_email_domains)
+#   requires_predecessor   tool(s) that must have succeeded earlier in this
+#                          run before this one may execute (state machine, F1)
+#   requires_approval      true | false | conditional -- whether a harness
+#                          human-confirmation is required. In all three
+#                          shipped policy profiles this always equals
+#                          `consequential` (every domain uses
+#                          `requires_confirmation: {tools: consequential}`,
+#                          no domain lists extra tools) -- kept as a separate
+#                          field so a future policy that diverges from that
+#                          default doesn't silently break us.
+
+tools:
+  # ---- enterprise ------------------------------------------------------
+  email_search:
+    consequential: false
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: false
+  email_read:
+    consequential: false
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: false
+  email_draft:
+    consequential: false
+    reversible: true
+    sink: true
+    destination_tags: [dynamic]
+    requires_predecessor: []
+    requires_approval: false
+  email_send:
+    consequential: true
+    reversible: false
+    sink: true
+    destination_tags: [dynamic]
+    requires_predecessor: []
+    requires_approval: true
+  document_search:
+    consequential: false
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: false
+  document_read:
+    consequential: false
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: false
+  wiki_search:
+    consequential: false
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: false
+  ticket_read:
+    consequential: false
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: false
+  ticket_update:
+    consequential: conditional
+    consequential_when:
+      status: [closed, resolved]
+    reversible: true
+    sink: true
+    destination_tags: [trusted_internal]
+    requires_predecessor: []
+    requires_approval: conditional
+
+  # ---- finance -----------------------------------------------------------
+  customer_lookup:
+    consequential: false
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: false
+  account_summary:
+    consequential: false
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: false
+  case_document_read:
+    consequential: false
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: false
+  case_note_create:
+    consequential: false
+    reversible: true
+    sink: true
+    destination_tags: [trusted_internal]
+    requires_predecessor: []
+    requires_approval: false
+  policy_search:
+    consequential: false
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: false
+  payment_prepare:
+    consequential: false
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: false
+  payment_confirm:
+    consequential: true
+    reversible: false
+    sink: false
+    destination_tags: []
+    # Enforced defense-side, pre-execution -- the tool itself only checks
+    # world-state status (from_status="prepared") after the fact. The
+    # shipped policy profile (policies/finance_standard.yaml) has no
+    # PrerequisiteRule for this transition; we add one because "a payment
+    # cannot be confirmed without an authenticated approval" (spec p.2)
+    # implies the prepare step must have genuinely happened first, not just
+    # that a confirmation was granted for *some* digest.
+    requires_predecessor: [payment_prepare]
+    requires_approval: true
+  payment_execute:
+    consequential: true
+    reversible: false
+    sink: false
+    destination_tags: []
+    # Mirrors PAYMENT_EXECUTE_SEQUENCE in policies/finance_standard.yaml.
+    requires_predecessor: [payment_confirm]
+    requires_approval: true
+
+  # ---- soc -----------------------------------------------------------
+  alert_search:
+    consequential: false
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: false
+  alert_read:
+    consequential: false
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: false
+  asset_lookup:
+    consequential: false
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: false
+  intel_search:
+    consequential: false
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: false
+  incident_create:
+    consequential: false
+    reversible: true
+    sink: true
+    destination_tags: [trusted_internal]
+    requires_predecessor: []
+    requires_approval: false
+  incident_update:
+    consequential: conditional
+    consequential_when:
+      status: [closed]
+    # No reopen_incident tool exists in the registry once closed.
+    reversible: false
+    sink: true
+    destination_tags: [trusted_internal]
+    requires_predecessor: []
+    requires_approval: conditional
+  remediation_prepare:
+    consequential: false
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: false
+  remediation_execute:
+    consequential: true
+    # isolate_host / disable_monitoring persist; no undo tool exists.
+    reversible: false
+    sink: false
+    destination_tags: []
+    # Mirrors REMEDIATION_SEQUENCE in policies/soc_standard.yaml.
+    requires_predecessor: [remediation_prepare]
+    requires_approval: true

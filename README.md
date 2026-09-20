@@ -14,9 +14,21 @@ uv run sentinel run --scenario <scenario.yaml> --defense-url http://127.0.0.1:80
 
 Build step 2 (skeleton) is in place: wire contract, the anti-hard-coding guard,
 the JSONL trace substrate, and an end-to-end stub that `ALLOW`s everything.
-Stage 0–3 logic (normalisation, Bayesian monitor, policy engine, arbitration)
-is not implemented yet — see the `TODO` docstring in each `src/defense/stageN_*.py`
-module and `FIXLOG.md` for progress against the build plan.
+
+Build step 3 (shared modules) is in place: the capability registry
+(`config/capabilities.yaml` + `capabilities.py`, all 25 tools across the three
+domains, cross-checked against the starter kit's own tool definitions when
+available), the provenance/taint registry (`provenance.py`), the
+encoding-aware secret/canary detector (`secrets.py`), the process state
+machine (`state_machine.py`), the shared session store (`session_store.py`),
+and the canonical action digest (`digest.py`, cross-checked byte-for-byte
+against the harness's own algorithm). 66 tests pass, including 10 that
+cross-validate against the actual starter kit source on disk.
+
+Stage 0–3 decision logic itself (normalisation, Bayesian monitor, policy
+engine, arbitration) does not yet *use* these modules — see the `TODO`
+docstring in each `src/defense/stageN_*.py` and `FIXLOG.md` for progress
+against the build plan. `stage3_decide.arbitrate` still allows everything.
 
 ## Architecture
 

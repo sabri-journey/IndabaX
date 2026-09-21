@@ -137,6 +137,42 @@ def _try_mask_secret(spec: RewriteSpec, target: CandidateAction, findings: tuple
     )
 
 
+def _try_mask_secret_response(
+    spec: RewriteSpec, target: CandidateAction, findings: tuple[Finding, ...]
+) -> RewriteResult | None:
+    """Response-channel mirror of _try_mask_secret (build step 10): a
+    `respond` action has no tool/arguments, so the sink-scoped rewrite above
+    never applies to it. Masks a detected canary/secret out of the response
+    content itself and lets the (now-safe) answer still reach the user,
+    instead of blocking a reply whose SHAPE was the reference-plan-correct
+    answer to a legitimate question -- exactly the same "action is right,
+    content is the problem" case the sink version already handles.
+
+    Deliberately does NOT attempt to mask SENSITIVE_IN_RESPONSE findings:
+    unlike a canary/secret (an exact, known value scan_values can locate and
+    redact), a sensitive_response finding only says "this traces to
+    confidential/restricted content" via a windowed hash match, with no
+    single literal substring safe to remove -- the same reason
+    GEN-SENSITIVE-TO-UNTRUSTED-SINK has no masking rewrite either."""
+    if target.type != "respond" or not target.content:
+        return None
+    hits = scan_values([target.content])
+    plain_hits = [h for h in hits if h.encoding == "plain"]
+    if not plain_hits:
+        return None
+    new_content = mask(target.content, plain_hits)
+    if new_content == target.content:
+        return None
+    rewritten = CandidateAction(type="respond", content=new_content, final=target.final)
+    return RewriteResult(
+        rewrite_id=spec.id,
+        original=target,
+        rewritten=rewritten,
+        reason_codes=tuple(sorted({f.reason_code for f in findings})),
+        removed=f"masked {len(plain_hits)} secret value(s) from response text",
+    )
+
+
 def _try_substitute_tool(
     spec: RewriteSpec, target: CandidateAction, findings: tuple[Finding, ...], policy_context: dict[str, Any]
 ) -> RewriteResult | None:
@@ -175,7 +211,11 @@ def _try_downgrade_status(spec: RewriteSpec, target: CandidateAction, findings: 
 
 def propose_rewrite(ctx: DecisionContext, findings: tuple[Finding, ...]) -> RewriteResult | None:
     target = target_action(ctx.candidate_action)
-    if target.type != "tool_call" or target.tool is None:
+    # Every other rewrite kind (substitute_tool, downgrade_status) genuinely
+    # needs a tool_call to retarget; mask_secret_response is the one
+    # exception (build step 10) -- a `respond` action has no tool at all, so
+    # it can't be excluded by the same blanket check the other kinds need.
+    if target.type not in ("tool_call", "respond") or (target.type == "tool_call" and target.tool is None):
         return None
 
     for spec in cached_default_rewrites():
@@ -185,6 +225,8 @@ def propose_rewrite(ctx: DecisionContext, findings: tuple[Finding, ...]) -> Rewr
         result: RewriteResult | None = None
         if spec.kind == "mask_secret":
             result = _try_mask_secret(spec, target, findings)
+        elif spec.kind == "mask_secret_response":
+            result = _try_mask_secret_response(spec, target, findings)
         elif spec.kind == "substitute_tool":
             result = _try_substitute_tool(spec, target, findings, ctx.policy_context)
         elif spec.kind == "downgrade_status":

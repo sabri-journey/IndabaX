@@ -78,9 +78,15 @@ CONFIRMATION_KINDS = frozenset({"consequential_approval", "forced_confirmation"}
 # groups with the provenance kinds despite the "sink" in its name.
 _STATE_MACHINE_KINDS = frozenset({"prerequisite", "consequential_approval", "forced_confirmation"})
 _PROVENANCE_KINDS = frozenset(
-    {"provenance_condition", "destination_provenance", "instruction_mirrors_untrusted", "sensitive_sink"}
+    {
+        "provenance_condition",
+        "destination_provenance",
+        "instruction_mirrors_untrusted",
+        "sensitive_sink",
+        "sensitive_response",
+    }
 )
-_SECRET_DETECTOR_KINDS = frozenset({"secret_sink"})
+_SECRET_DETECTOR_KINDS = frozenset({"secret_sink", "secret_response"})
 
 
 def _ablation_enabled(kind: str) -> bool:
@@ -225,11 +231,51 @@ def evaluate(ctx: DecisionContext, session: SessionState, registry: CapabilityRe
     target = target_action(action)
     digest = action_digest(target)
 
+    findings: list[Finding] = []
+
+    # A `respond` action has no tool at all, so every tool-scoped rule kind
+    # below (sink destination, secret-in-sink-arguments, ...) structurally
+    # cannot see it -- "is this tool a sink" has no meaning when there is no
+    # tool. That is exactly the shape the reference agent uses to exfiltrate
+    # in practice (build step 10, real Qwen3-8B): a legitimate, in-scope
+    # lookup returns tainted content, and the agent's own summarising reply
+    # repeats a restricted value back to the user with no tool call involved.
+    # These two checks are the response-channel mirror of GEN-SECRET-TO-
+    # UNTRUSTED-SINK / GEN-SENSITIVE-TO-UNTRUSTED-SINK, run unconditionally
+    # for any `respond` action so this path is no longer structurally unseen.
+    if target.type == "respond" and target.content:
+        for rule in rules:
+            if not _ablation_enabled(rule.kind):
+                continue
+            if rule.kind == "secret_response":
+                hits = scan_values([target.content])
+                if hits:
+                    findings.append(
+                        Finding(
+                            rule.id,
+                            rule.kind,
+                            rule.severity,
+                            rule.reason_code,
+                            f"secret detected in outbound response ({hits[0].kind}, {hits[0].encoding})",
+                        )
+                    )
+            elif rule.kind == "sensitive_response":
+                chain = trace_bulk_text(target.content, ctx.conversation, ctx.provenance_by_id)
+                if SENSITIVITY_RANK[chain.sensitivity] >= SENSITIVITY_RANK["confidential"] and chain.links:
+                    findings.append(
+                        Finding(
+                            rule.id,
+                            rule.kind,
+                            rule.severity,
+                            rule.reason_code,
+                            f"outbound response traces to {chain.sensitivity} content: {chain.describe()}",
+                        )
+                    )
+
     if target.type != "tool_call" or target.tool is None:
-        return PolicyVerdict(findings=(), action_digest=digest)
+        return PolicyVerdict(findings=tuple(findings), action_digest=digest)
 
     tool = target.tool
-    findings: list[Finding] = []
 
     for rule in rules:
         if not _ablation_enabled(rule.kind):

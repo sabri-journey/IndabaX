@@ -33,7 +33,7 @@ rewrites:
   - id: GEN-MASK-SECRET-IN-SINK
     kind: mask_secret
     applies_to: sink
-    triggers_on_reason_codes: [SECRET_TO_UNTRUSTED_SINK, SECRET_IN_INTERNAL_NOTE]
+    triggers_on_reason_codes: [SECRET_TO_UNTRUSTED_SINK, SECRET_IN_INTERNAL_NOTE, SECRET_COPIED_TO_SINK]
     description: >
       Redact detected canary/secret values (secrets.mask, every documented
       encoding) from the outbound text arguments rather than blocking the
@@ -41,6 +41,29 @@ rewrites:
       attachments" (spec). Finance: "mask account identifiers in any
       outbound text" -- payment tools carry no free-text sink today, so this
       generalised sink-scoped rule already covers the finance case too.
+      SECRET_COPIED_TO_SINK (build step 10) added so a legitimate,
+      reference-plan-correct case_note_create/incident_create call whose
+      CONTENT happens to be tainted gets its secret masked and still
+      completes the task, instead of a flat BLOCK that would (correctly, on
+      the security axis, but wastefully) also count as a false block on the
+      task-completion axis -- the same "action shape is right, only the
+      content is the problem" case _try_mask_secret already exists for.
+
+  - id: GEN-MASK-SECRET-IN-RESPONSE
+    kind: mask_secret_response
+    triggers_on_reason_codes: [SECRET_IN_RESPONSE]
+    description: >
+      Response-channel mirror of GEN-MASK-SECRET-IN-SINK (build step 10):
+      redact a detected canary/secret from a `respond` action's own content
+      rather than blocking the whole reply. The reply is frequently the
+      reference-plan-correct answer to a legitimate question that merely
+      happened to also repeat a secret it read along the way -- masking
+      preserves the legitimate answer while still removing the leak.
+      Deliberately NOT triggered on SENSITIVE_IN_RESPONSE alone: that
+      finding has no single known substring safe to redact (see
+      _try_mask_secret_response's docstring), so those stay a flat BLOCK,
+      same as GEN-SENSITIVE-TO-UNTRUSTED-SINK already does for the
+      equivalent tool-call-sink case.
 
   - id: ENT-SEND-TO-DRAFT
     kind: substitute_tool

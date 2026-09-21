@@ -56,6 +56,7 @@ class RewriteSpec:
 @dataclass(frozen=True)
 class RewriteResult:
     rewrite_id: str
+    kind: str
     original: CandidateAction
     rewritten: CandidateAction
     reason_codes: tuple[str, ...]
@@ -130,6 +131,7 @@ def _try_mask_secret(spec: RewriteSpec, target: CandidateAction, findings: tuple
         return None
     return RewriteResult(
         rewrite_id=spec.id,
+        kind=spec.kind,
         original=target,
         rewritten=rewritten,
         reason_codes=tuple(sorted({f.reason_code for f in findings})),
@@ -166,6 +168,7 @@ def _try_mask_secret_response(
     rewritten = CandidateAction(type="respond", content=new_content, final=target.final)
     return RewriteResult(
         rewrite_id=spec.id,
+        kind=spec.kind,
         original=target,
         rewritten=rewritten,
         reason_codes=tuple(sorted({f.reason_code for f in findings})),
@@ -183,6 +186,7 @@ def _try_substitute_tool(
     rewritten = CandidateAction(type="tool_call", tool=spec.to_tool, arguments=dict(target.arguments))
     return RewriteResult(
         rewrite_id=spec.id,
+        kind=spec.kind,
         original=target,
         rewritten=rewritten,
         reason_codes=tuple(sorted({f.reason_code for f in findings})),
@@ -202,6 +206,7 @@ def _try_downgrade_status(spec: RewriteSpec, target: CandidateAction, findings: 
     rewritten = CandidateAction(type="tool_call", tool=target.tool, arguments=new_arguments)
     return RewriteResult(
         rewrite_id=spec.id,
+        kind=spec.kind,
         original=target,
         rewritten=rewritten,
         reason_codes=tuple(sorted({f.reason_code for f in findings})),

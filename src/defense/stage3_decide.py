@@ -64,6 +64,26 @@ from defense.stage2_policy import PolicyVerdict
 SEVERITY_RANK = {"low": 0, "medium": 1, "high": 2, "critical": 3}
 SEVERITY_RISK = {"low": 0.35, "medium": 0.55, "high": 0.8, "critical": 0.95}
 REWRITE_RISK_CAP = 0.6
+
+# A masking rewrite (mask_secret / mask_secret_response) provably removes the
+# exact flagged value from the outbound text -- re-scanned and verified in
+# rewrites.py before it's ever proposed -- unlike a substitution rewrite
+# (substitute_tool / downgrade_status), which only downgrades a still-
+# suspicious action without addressing why the model attempted it in the
+# first place. Real-Qwen3-8B re-verification (build step 10 follow-up) found
+# every one of 23 GEN-MASK-SECRET-IN-RESPONSE rewrites, and the sole
+# GEN-SECRET-IN-ANY-SINK-triggered case, landed on an action the harness
+# itself labelled legitimate -- the flat REWRITE_RISK_CAP (0.6, same as a
+# suspicion-downgrade) was reporting a calibration-breaking risk score for
+# something the defense had just verified was clean. Lower, not zero: a
+# masked secret is still evidence a canary was present in outbound text at
+# all, which is exactly what SECRET_IN_TEXT's own likelihood ratio already
+# says is meaningful -- reporting near-certainty of safety here would be its
+# own overconfidence, especially against scenarios this exact sample hasn't
+# seen. See config/likelihoods.yaml FIXLOG note on this same calibration
+# pass for the full before/after numbers.
+MASKING_REWRITE_KINDS = frozenset({"mask_secret", "mask_secret_response"})
+MASKING_REWRITE_RISK_CAP = 0.25
 MAX_REASON_CODES = 16
 MAX_EXPLANATION_CHARS = 500
 
@@ -148,9 +168,10 @@ def arbitrate(ctx: DecisionContext, policy: PolicyVerdict, bayes: BayesResult) -
         if SEVERITY_RANK[worst] >= SEVERITY_RANK["high"]:
             rewrite = propose_rewrite(ctx, policy.findings) if ablation.rewrites_enabled() else None
             if rewrite is not None:
+                cap = MASKING_REWRITE_RISK_CAP if rewrite.kind in MASKING_REWRITE_KINDS else REWRITE_RISK_CAP
                 return DefenseDecision(
                     decision="rewrite",
-                    risk_score=round(min(risk, REWRITE_RISK_CAP), 4),
+                    risk_score=round(min(risk, cap), 4),
                     confidence=0.75,
                     reason_codes=_reason_codes(hard),
                     explanation=(f"{rewrite.rewrite_id}: {rewrite.removed}. " + (_explanation(hard) or ""))[

@@ -1,0 +1,269 @@
+# Capability metadata for AgentDojo's banking + workspace suites (34 tools),
+# in the same schema as IndabaX's config/capabilities.yaml -- but this file
+# lives entirely outside that repo (~/agentdojo/), loaded by a second,
+# separate defense server instance on port 8081 via a runtime monkeypatch of
+# defense.capabilities.DEFAULT_CAPABILITIES_PATH. config/capabilities.yaml
+# itself is never touched.
+#
+# Judgment calls (AgentDojo has no equivalent authoring doc to read these
+# off of, unlike the Sentinel Starter Kit's own tools.py):
+#   - requires_predecessor is empty everywhere: AgentDojo has no explicit
+#     prepare->confirm->execute chain the way the finance domain does.
+#   - reversible follows "does a tool in THIS list undo it" literally
+#     (e.g. update_scheduled_transaction undoes schedule_transaction, so
+#     schedule_transaction is reversible; delete_file/delete_email/
+#     cancel_calendar_event/share_file have no undo tool, so false).
+
+tools:
+  # ---- banking -----------------------------------------------------------
+  get_iban:
+    consequential: false
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: false
+  send_money:
+    consequential: true
+    reversible: false
+    sink: true
+    destination_tags: [dynamic]
+    requires_predecessor: []
+    requires_approval: true
+  schedule_transaction:
+    consequential: true
+    reversible: true
+    sink: true
+    destination_tags: [dynamic]
+    requires_predecessor: []
+    requires_approval: true
+  update_scheduled_transaction:
+    consequential: true
+    reversible: true
+    sink: true
+    destination_tags: [dynamic]
+    requires_predecessor: []
+    requires_approval: true
+  get_balance:
+    consequential: false
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: false
+  get_most_recent_transactions:
+    consequential: false
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: false
+  get_scheduled_transactions:
+    consequential: false
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: false
+  read_file:
+    consequential: false
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: false
+  get_user_info:
+    consequential: false
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: false
+  update_password:
+    consequential: true
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: true
+  update_user_info:
+    consequential: true
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: true
+
+  # ---- workspace: email ----------------------------------------------------
+  send_email:
+    consequential: true
+    reversible: false
+    sink: true
+    destination_tags: [dynamic]
+    requires_predecessor: []
+    requires_approval: true
+  delete_email:
+    consequential: true
+    reversible: false
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: true
+  get_unread_emails:
+    consequential: false
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: false
+  get_sent_emails:
+    consequential: false
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: false
+  get_received_emails:
+    consequential: false
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: false
+  get_draft_emails:
+    consequential: false
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: false
+  search_emails:
+    consequential: false
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: false
+  search_contacts_by_name:
+    consequential: false
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: false
+  search_contacts_by_email:
+    consequential: false
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: false
+
+  # ---- workspace: calendar -------------------------------------------------
+  get_current_day:
+    consequential: false
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: false
+  search_calendar_events:
+    consequential: false
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: false
+  get_day_calendar_events:
+    consequential: false
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: false
+  create_calendar_event:
+    consequential: true
+    reversible: true
+    sink: true
+    destination_tags: [dynamic]
+    requires_predecessor: []
+    requires_approval: true
+  cancel_calendar_event:
+    consequential: true
+    reversible: false
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: true
+  reschedule_calendar_event:
+    consequential: true
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: true
+  add_calendar_event_participants:
+    consequential: true
+    reversible: true
+    sink: true
+    destination_tags: [dynamic]
+    requires_predecessor: []
+    requires_approval: true
+
+  # ---- workspace: drive -----------------------------------------------------
+  append_to_file:
+    consequential: true
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: true
+  create_file:
+    consequential: true
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: true
+  delete_file:
+    consequential: true
+    reversible: false
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: true
+  get_file_by_id:
+    consequential: false
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: false
+  list_files:
+    consequential: false
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: false
+  search_files:
+    consequential: false
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: false
+  search_files_by_filename:
+    consequential: false
+    reversible: true
+    sink: false
+    destination_tags: []
+    requires_predecessor: []
+    requires_approval: false
+  share_file:
+    consequential: true
+    reversible: false
+    sink: true
+    destination_tags: [dynamic]
+    requires_predecessor: []
+    requires_approval: true
